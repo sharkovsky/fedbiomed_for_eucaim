@@ -22,11 +22,20 @@ trap finish TERM INT QUIT
 export FBM_SERVER_HOST=10.222.0.2
 export FBM_SERVER_PORT=50051
 export PYTHONPATH=/fedbiomed
+<<<<<<< HEAD
 export FBM_SECURITY_SECAGG_INSECURE_VALIDATION=False
-su -c "export FBM_RESEARCHER_COMPONENT_ROOT=/fbm-researcher ; \
-      fedbiomed component create -c researcher --path /fbm-researcher  --exist-ok; \
-	  cd /fedbiomed/notebooks ; \
-      jupyter notebook --ip=0.0.0.0 --no-browser --allow-root --NotebookApp.token='' " $CONTAINER_USER &
+if [ -z "$FBM_PY" ] || [ "$FBM_PY" == "jupyter" ]
+then
+    su -c "export FBM_RESEARCHER_COMPONENT_ROOT=/fbm-researcher ; \
+           fedbiomed component create -c researcher --path /fbm-researcher  --exist-ok; \
+	   cd /fedbiomed/notebooks ; \
+           jupyter notebook --ip=0.0.0.0 --no-browser --allow-root --NotebookApp.token='' " $CONTAINER_USER &
+else
+    su -c "export FBM_RESEARCHER_COMPONENT_ROOT=/fbm-researcher ; \
+           fedbiomed component create -c researcher --path /fbm-researcher  --exist-ok; \
+           cd notebooks/samples ; \
+	   python $FBM_PY " $CONTAINER_USER &
+fi
 
 # proxy port for TensorBoard
 # enables launching TB without `--host` option (thus listening only on `localhost`)
