@@ -23,9 +23,7 @@ if [ -z "$(ls -1 $COMMON_DIR)" ]; then
   rsync -auxt "/fedbiomed/envs/common_reference/" "$COMMON_DIR"
 fi
 
-
 trap finish TERM INT QUIT
-
 
 # Create node configuration if not existing yet
 su -l -c "export FBM_SECURITY_FORCE_SECURE_AGGREGATION=\"${FBM_SECURITY_FORCE_SECURE_AGGREGATION}\" && \

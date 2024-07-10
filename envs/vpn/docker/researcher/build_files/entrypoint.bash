@@ -22,7 +22,6 @@ trap finish TERM INT QUIT
 export FBM_SERVER_HOST=10.222.0.2
 export FBM_SERVER_PORT=50051
 export PYTHONPATH=/fedbiomed
-<<<<<<< HEAD
 export FBM_SECURITY_SECAGG_INSECURE_VALIDATION=False
 if [ -z "$FBM_PY" ] || [ "$FBM_PY" == "jupyter" ]
 then
