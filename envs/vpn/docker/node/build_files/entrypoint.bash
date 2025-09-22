@@ -37,6 +37,11 @@ su -l -c "export FBM_SECURITY_FORCE_SECURE_AGGREGATION=\"${FBM_SECURITY_FORCE_SE
 #   eg FBM_NODE_START_OPTIONS="--gpu-only" can be used for starting node forcing GPU usage
 su -l -c "echo \"$FBM_NODE_START_OPTIONS\" >/fbm-node/FBM_NODE_START_OPTIONS" $CONTAINER_USER
 
+# Add dataset 
+DATASET_ID=$1
+echo "Adding dataset $DATASET_ID"
+$SETUSER fedbiomed node dataset add --file /fbm-node/data/${DATASET_ID}.json
+
 # Launch node using node options
 $SETUSER fedbiomed node start $FBM_NODE_START_OPTIONS &
 
