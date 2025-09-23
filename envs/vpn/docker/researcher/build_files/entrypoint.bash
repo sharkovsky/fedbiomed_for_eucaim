@@ -23,6 +23,7 @@ export FBM_SERVER_HOST=10.222.0.2
 export FBM_SERVER_PORT=50051
 export PYTHONPATH=/fedbiomed
 export FBM_SECURITY_SECAGG_INSECURE_VALIDATION=False
+FBM_PY=$1  # name of the script to be executed
 if [ -z "$FBM_PY" ] || [ "$FBM_PY" == "jupyter" ]
 then
     su -c "export FBM_RESEARCHER_COMPONENT_ROOT=/fbm-researcher ; \
@@ -30,6 +31,7 @@ then
 	   cd /fedbiomed/notebooks ; \
            jupyter notebook --ip=0.0.0.0 --no-browser --allow-root --NotebookApp.token='' " $CONTAINER_USER &
 else
+    echo "Executing script $FBM_PY"
     su -c "export FBM_RESEARCHER_COMPONENT_ROOT=/fbm-researcher ; \
            fedbiomed component create -c researcher --path /fbm-researcher  --exist-ok; \
            cd notebooks/samples ; \
