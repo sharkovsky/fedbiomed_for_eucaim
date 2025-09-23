@@ -34,7 +34,7 @@ else
     echo "Executing script $FBM_PY"
     su -c "export FBM_RESEARCHER_COMPONENT_ROOT=/fbm-researcher ; \
            fedbiomed component create -c researcher --path /fbm-researcher  --exist-ok; \
-           cd notebooks/samples ; \
+           cd /fedbiomed/notebooks/samples ; \
 	   python $FBM_PY " $CONTAINER_USER &
 fi
 
