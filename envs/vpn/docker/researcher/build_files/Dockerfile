@@ -51,6 +51,7 @@ COPY ./envs/vpn/docker/researcher/build_files/entrypoint*.bash /
 # Setup subset of fedbiomed code tree
 RUN mkdir -p /fedbiomed/envs /data
 RUN mkdir -p /fbm-researcher
+RUN mkdir -p /app/custom /app/config
 
 # Copy files from fedbiomed repo - in the context of fedbiomed top directory
 COPY envs/vpn /fedbiomed/envs/vpn
@@ -63,6 +64,7 @@ COPY fedbiomed_gui /fedbiomed/fedbiomed_gui
 COPY pyproject.toml /fedbiomed/pyproject.toml
 COPY README.md /fedbiomed/README.md
 COPY hatch_build.py /fedbiomed/hatch_build.py
+COPY envs/vpn/docker/researcher/build_files/main.py /app/main.py
 
 RUN ln -s /fedbiomed/docs/tutorials /fedbiomed/notebooks/tutorials
 
@@ -74,6 +76,7 @@ RUN ln -s /fedbiomed/docs/tutorials /fedbiomed/notebooks/tutorials
 # Prepare for work in context of alternate account
 RUN chown -R $CONTAINER_USER:$CONTAINER_GROUP /fedbiomed
 RUN chown -R $CONTAINER_USER:$CONTAINER_GROUP /fbm-researcher
+RUN chown -R $CONTAINER_USER:$CONTAINER_GROUP /app
 WORKDIR /fedbiomed
 
 # Set container user
