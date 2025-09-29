@@ -30,11 +30,12 @@ DEST_DIR="/app/custom"
 DEST_FILE="${DEST_DIR}/eucaim_training_plan.py"
 if [ -f "$SRC_FILE" ]; then
     echo "Copying custom_code.py to ${DEST_FILE}"
-    cp "$SRC_FILE" "$DEST_FILE"
+    su -c "cp $SRC_FILE $DEST_FILE" $CONTAINER_USER
 else
     echo "ERROR: ${SRC_FILE} not found."
     exit 1
 fi
+change_path_owner "" "/app"
 export PYTHONPATH="${DEST_DIR}:${PYTHONPATH}"
 # Ensure arguments to experiment can be loaded
 SRC_FILE="/sandbox/inputs/arguments.json"
