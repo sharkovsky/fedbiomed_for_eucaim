@@ -1,10 +1,10 @@
 import json
 import argparse
-from fedbiomed.researcher.experiment import Experiment
+from fedbiomed.researcher.federated_workflows import Experiment
 from fedbiomed.researcher.aggregators.fedavg import FedAverage
 
 # Import user-provided training plan
-from eucaim_trainin_plan import EucaimTrainingPlan 
+from eucaim_training_plan import EucaimTrainingPlan 
 
 
 # Import user-provided experiment configuration
