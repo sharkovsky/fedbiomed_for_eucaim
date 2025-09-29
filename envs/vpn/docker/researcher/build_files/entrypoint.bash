@@ -24,7 +24,7 @@ export FBM_SERVER_PORT=50051
 export PYTHONPATH=/fedbiomed
 export FBM_SECURITY_SECAGG_INSECURE_VALIDATION=False
 
-# Ensure custom training plan can be loaded and execute main.py
+# Ensure custom training plan can be loaded
 SRC_FILE="/sandbox/inputs/eucaim_training_plan.py"
 DEST_DIR="/app/custom"
 DEST_FILE="${DEST_DIR}/eucaim_training_plan.py"
@@ -36,6 +36,17 @@ else
     exit 1
 fi
 export PYTHONPATH="${DEST_DIR}:${PYTHONPATH}"
+# Ensure arguments to experiment can be loaded
+SRC_FILE="/sandbox/inputs/arguments.json"
+DEST_DIR="/app/config"
+DEST_FILE="${DEST_DIR}/arguments.json"
+if [ -f "$SRC_FILE" ]; then
+    echo "Copying arguments.json to ${DEST_FILE}"
+    su -c "cp $SRC_FILE $DEST_FILE" $CONTAINER_USER
+else
+    echo "ERROR: ${SRC_FILE} not found."
+    exit 1
+fi
 
 DATASET_ID=$1
 su -c "export FBM_RESEARCHER_COMPONENT_ROOT=/fbm-researcher ; \
