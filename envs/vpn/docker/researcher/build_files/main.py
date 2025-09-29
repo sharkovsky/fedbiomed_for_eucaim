@@ -23,11 +23,11 @@ parser = argparse.ArgumentParser(
         description="Fed-BioMed federated training application for EUCAIM"
     )
 
-    parser.add_argument(
-        "dataset_id",
-        type=str,
-        help="The dataset ID (must be alphanumeric, e.g., 'Dataset123')."
-    )
+parser.add_argument(
+    "dataset_id",
+    type=str,
+    help="The dataset ID (must be alphanumeric, e.g., 'Dataset123')."
+)
 
 
 if __name__ == "__main__":
