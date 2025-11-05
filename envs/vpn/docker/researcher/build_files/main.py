@@ -1,3 +1,6 @@
+import time
+time.sleep(30)
+
 import json
 import argparse
 from fedbiomed.researcher.federated_workflows import Experiment
@@ -42,9 +45,12 @@ if __name__ == "__main__":
                      model_args=model_args,
                      training_args=training_args,
                      aggregator=FedAverage(),
+                     save_breakpoints=True,
                      node_selection_strategy=None,
                      **exp_kwargs)
 
     # Run experiment
     exp.run()
 
+    # Copy the results to a persistent storage
+    shutil.copytree("/fbm-researcher/var/experiments", "/sandbox/experiments", dirs_exist_ok=True)
