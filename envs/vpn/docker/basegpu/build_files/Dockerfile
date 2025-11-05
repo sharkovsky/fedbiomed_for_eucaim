@@ -22,7 +22,10 @@ FROM nvidia/cuda:12.1.1-base-ubuntu22.04
 
 RUN apt-get update && \
     apt-get install -y python3.10-full && \
-    apt-get install -y iptables iproute2 iputils-ping bash vim net-tools procps build-essential kmod
+    apt-get install -y iptables iproute2 iputils-ping bash vim net-tools procps build-essential kmod && \
+    rm -f /var/log/lastlog /var/log/faillog && \
+    ln -s /dev/null /var/log/lastlog && \
+    ln -s /dev/null /var/log/faillog
 
 # get wireguard from builder image
 COPY --from=builder /root/.cargo/bin/boringtun /usr/bin/
