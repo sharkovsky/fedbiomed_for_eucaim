@@ -1,6 +1,13 @@
 ARG FBM_CONTAINER_VERSION_TAG
 FROM fedbiomed/vpn-basenode:${FBM_CONTAINER_VERSION_TAG:-unknown}
 
+LABEL maintainer="francesco.cremonesi@inria.fr"
+LABEL version="6.1.1"
+LABEL description="Fed-BioMed FL framework"
+LABEL image.source="https://github.com/fedbiomed/fedbiomed"
+LABEL image.revision=""
+LABEL image.version="0.1"
+
 ARG CONTAINER_GID
 ARG CONTAINER_UID
 ARG CONTAINER_GROUP
