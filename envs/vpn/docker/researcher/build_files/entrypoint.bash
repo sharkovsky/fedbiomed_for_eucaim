@@ -23,10 +23,36 @@ export FBM_SERVER_HOST=10.222.0.2
 export FBM_SERVER_PORT=50051
 export PYTHONPATH=/fedbiomed
 export FBM_SECURITY_SECAGG_INSECURE_VALIDATION=False
+
+# Ensure custom training plan can be loaded
+SRC_FILE="/sandbox/inputs/eucaim_training_plan.py"
+DEST_DIR="/app/custom"
+DEST_FILE="${DEST_DIR}/eucaim_training_plan.py"
+if [ -f "$SRC_FILE" ]; then
+    echo "Copying eucaim_training_plan.py to ${DEST_FILE}"
+    su -c "cp $SRC_FILE $DEST_FILE" $CONTAINER_USER
+else
+    echo "ERROR: ${SRC_FILE} not found."
+    exit 1
+fi
+change_path_owner "" "/app"
+export PYTHONPATH="${DEST_DIR}:${PYTHONPATH}"
+# Ensure arguments to experiment can be loaded
+SRC_FILE="/sandbox/inputs/arguments.json"
+DEST_DIR="/app/config"
+DEST_FILE="${DEST_DIR}/arguments.json"
+if [ -f "$SRC_FILE" ]; then
+    echo "Copying arguments.json to ${DEST_FILE}"
+    su -c "cp $SRC_FILE $DEST_FILE" $CONTAINER_USER
+else
+    echo "ERROR: ${SRC_FILE} not found."
+    exit 1
+fi
+
+DATASET_ID=$1
 su -c "export FBM_RESEARCHER_COMPONENT_ROOT=/fbm-researcher ; \
-      fedbiomed component create -c researcher --path /fbm-researcher  --exist-ok; \
-	  cd /fedbiomed/notebooks ; \
-      jupyter notebook --ip=0.0.0.0 --no-browser --allow-root --NotebookApp.token='' " $CONTAINER_USER &
+   fedbiomed component create -c researcher --path /fbm-researcher  --exist-ok; \
+   python /app/main.py $DATASET_ID " $CONTAINER_USER &
 
 # proxy port for TensorBoard
 # enables launching TB without `--host` option (thus listening only on `localhost`)
