@@ -20,6 +20,15 @@ RUN apt-get install -y wireguard-tools
 # - need proper python version for Fed-BioMed
 FROM nvidia/cuda:12.1.1-base-ubuntu22.04
 
+# EUCAIM image metadata - pass `--build-arg IMAGE_REVISION=$(git rev-parse HEAD)` to set the revision
+ARG IMAGE_REVISION=""
+LABEL maintainer="francesco.cremonesi@inria.fr"
+LABEL version="6.4.1"
+LABEL description="Fed-BioMed FL framework"
+LABEL image.source="https://github.com/fedbiomed/fedbiomed"
+LABEL image.revision="${IMAGE_REVISION}"
+LABEL image.version="0.1"
+
 RUN apt-get update && \
     apt-get install -y python3.10-full && \
     apt-get install -y iptables iproute2 iputils-ping bash vim net-tools procps build-essential kmod && \
