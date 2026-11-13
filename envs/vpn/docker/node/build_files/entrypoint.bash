@@ -23,9 +23,7 @@ if [ -z "$(ls -1 $COMMON_DIR)" ]; then
   rsync -auxt "/fedbiomed/envs/common_reference/" "$COMMON_DIR"
 fi
 
-
 trap finish TERM INT QUIT
-
 
 # Create node configuration if not existing yet
 su -l -c "export FBM_SECURITY_ALLOW_FEDERATED_ANALYTICS=\"${FBM_SECURITY_ALLOW_FEDERATED_ANALYTICS:-False}\" && \
@@ -40,6 +38,11 @@ su -l -c "export FBM_SECURITY_ALLOW_FEDERATED_ANALYTICS=\"${FBM_SECURITY_ALLOW_F
 # Overwrite node options file if re-launching container
 #   eg FBM_NODE_START_OPTIONS=--gpu-only can be used for starting node forcing GPU usage
 su -l -c "echo \"$FBM_NODE_START_OPTIONS\" >/fbm-node/FBM_NODE_START_OPTIONS" $CONTAINER_USER
+
+# Add dataset 
+DATASET_ID=$1
+echo "Adding dataset $DATASET_ID"
+$SETUSER fedbiomed node --path /fbm-node dataset add --file /sandbox/${DATASET_ID}.json
 
 # Launch node using node options
 su -l -c "fedbiomed node --path /fbm-node start --force $FBM_NODE_START_OPTIONS &" $CONTAINER_USER
