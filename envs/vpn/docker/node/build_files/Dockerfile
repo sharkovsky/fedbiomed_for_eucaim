@@ -19,7 +19,10 @@ ENV CONTAINER_GROUP=${CONTAINER_GROUP:-root}
 
 
 RUN apt-get update && apt-get install -y libgmp3-dev libmpfr-dev libmpc-dev apt-utils wget git \
-	python-tk python${PYTHON_VERSION} python3-pip
+	python-tk python${PYTHON_VERSION} python3-pip && \
+	rm -f /var/log/lastlog /var/log/faillog && \
+	ln -s /dev/null /var/log/lastlog && \
+	ln -s /dev/null /var/log/faillog
 
 # Create alias
 RUN ln -sf /usr/bin/python${PYTHON_VERSION} /usr/bin/python && \
