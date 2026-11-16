@@ -5,21 +5,30 @@
 Reader for datasets in the EUCAIM Common Data Model (CDM).
 
 Thin wrapper around `eucaim_cdm_reader.CdmReader`: it gives access to the normalized
-`clinical_data/` tables and reads one DICOM series into a volume. CDM validation is
+`clinical_data/` tables, finds the series matching a `SeriesQuery` (modality and
+acquisition parameters) and reads one DICOM series into a volume. CDM validation is
 deliberately not run here (the data is assumed to be validated beforehand).
 """
 
 import logging
 import warnings
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, Iterable, List, Optional, Set, Tuple, Union
 
 import pandas as pd
-from eucaim_cdm_reader import CdmReader, DicomVolume, schema, series_to_volume
+from eucaim_cdm_reader import (
+    CdmReader,
+    DicomVolume,
+    ParameterFilter,
+    schema,
+    series_to_volume,
+)
+from eucaim_cdm_reader.query import bare_code, filter_series
 from eucaim_cdm_reader.schema import FieldSpec
 
 from fedbiomed.common.constants import ErrorNumbers
-from fedbiomed.common.exceptions import FedbiomedError
+from fedbiomed.common.exceptions import FedbiomedError, FedbiomedValueError
 from fedbiomed.common.logger import logger
 
 # Parent of every logger of the library (`eucaim_cdm_reader.reader`, `..._utils`, ...)
@@ -41,7 +50,10 @@ class _FedLoggerBridge(logging.Handler):
     """
 
     def emit(self, record: logging.LogRecord) -> None:
-        # The Fed-BioMed level decides, then each Fed-BioMed handler applies its own.
+        """Passes `record` to the Fed-BioMed handlers if the Fed-BioMed level allows it.
+
+        Each Fed-BioMed handler then applies its own level.
+        """
         if logger.isEnabledFor(record.levelno):
             logger.handle(record)
 
@@ -75,6 +87,90 @@ _TABLES: Dict[str, Tuple[List[FieldSpec], bool]] = {
     "surgical_procedure": (schema.SURGICAL_PROCEDURE_FIELDS, False),
     "radiotherapy": (schema.RADIOTHERAPY_FIELDS, False),
 }
+
+
+@dataclass(frozen=True)
+class SeriesQuery:
+    """Which image series provide one image modality of a sample.
+
+    Mirrors the arguments of `eucaim_cdm_reader.CdmReader.find_series`: a series
+    matches when its `series_modality` is `modality` (if given) and it satisfies every
+    `ParameterFilter` on its acquisition parameters (rows of `image_modality.csv`).
+    Codes match with or without their `EUCAIM:` prefix, in the query and in the data.
+
+    Example: T1-weighted MR series, i.e. MR with Tissue Contrast = T1 weighted::
+
+        SeriesQuery(
+            "EUCAIM:IMG1000038",
+            parameters=ParameterFilter("IMG1016649", value_code="IMG1016652"),
+        )
+
+    Attributes:
+        modality: `series_modality` code, or `None` to match any modality.
+        parameters: Conditions on the acquisition parameters; a single
+            `ParameterFilter` or an iterable of them (stored as a tuple).
+        include_subclasses: Also match the EUCAIM ontology subclasses of `modality`
+            and of each filter's `value_code`. Needs the ontology, i.e. the
+            `eucaim-cdm-reader[ontology]` extra (rdflib).
+
+    Codes are checked against the schema by `EucaimCdmReader.check_series_query`,
+    not here.
+    """
+
+    modality: Optional[str] = None
+    parameters: Union[ParameterFilter, Iterable[ParameterFilter]] = ()
+    include_subclasses: bool = False
+
+    def __post_init__(self) -> None:
+        """Checks the types and stores `parameters` as a tuple.
+
+        Raises:
+            FedbiomedValueError: if an attribute has a wrong type, or if the query
+                has neither a modality nor a parameter.
+        """
+        if self.modality is not None and not (
+            isinstance(self.modality, str) and self.modality
+        ):
+            raise FedbiomedValueError(
+                f"{ErrorNumbers.FB634.value}: SeriesQuery `modality` must be a "
+                f"non-empty str or None, got {self.modality!r}"
+            )
+
+        parameters = self.parameters
+        if isinstance(parameters, ParameterFilter):
+            parameters = (parameters,)
+        elif isinstance(parameters, (str, dict)) or not isinstance(
+            parameters, Iterable
+        ):
+            raise FedbiomedValueError(
+                f"{ErrorNumbers.FB634.value}: SeriesQuery `parameters` must be a "
+                f"ParameterFilter or an iterable of them, got {parameters!r}"
+            )
+        parameters = tuple(parameters)
+        if not all(isinstance(p, ParameterFilter) for p in parameters):
+            raise FedbiomedValueError(
+                f"{ErrorNumbers.FB634.value}: SeriesQuery `parameters` must only "
+                f"contain ParameterFilter objects, got {parameters!r}"
+            )
+        object.__setattr__(self, "parameters", parameters)
+
+        if not isinstance(self.include_subclasses, bool):
+            raise FedbiomedValueError(
+                f"{ErrorNumbers.FB634.value}: SeriesQuery `include_subclasses` must "
+                f"be a bool, got {self.include_subclasses!r}"
+            )
+        if self.modality is None and not parameters:
+            raise FedbiomedValueError(
+                f"{ErrorNumbers.FB634.value}: SeriesQuery needs a modality, a "
+                "parameter, or both"
+            )
+
+
+def _empty_frame(string_columns: Iterable[str], **typed: str) -> pd.DataFrame:
+    """Returns an empty DataFrame with `StringDtype` columns plus `typed` ones."""
+    columns = {c: pd.Series(dtype="string") for c in string_columns}
+    columns.update({c: pd.Series(dtype=dtype) for c, dtype in typed.items()})
+    return pd.DataFrame(columns)
 
 
 class EucaimCdmReader:
@@ -200,6 +296,112 @@ class EucaimCdmReader:
             f"{ErrorNumbers.FB634.value}: EUCAIM CDM table '{table}' has no column "
             f"'{column}'"
         )
+
+    @staticmethod
+    def check_series_query(query: SeriesQuery) -> None:
+        """Checks the codes of a series query against the schema. Needs no data.
+
+        The library's own selection runs on empty tables, so the rules are exactly
+        those of `CdmReader.find_series`: parameter codes, value codes and units must
+        be in the schema code lists, and with `include_subclasses` every code must be
+        an EUCAIM ontology class. In addition, without `include_subclasses` the
+        modality must be in the `series_modality` code list (the library only warns).
+
+        Args:
+            query: Query to check.
+
+        Raises:
+            FedbiomedValueError: if `query` is not a `SeriesQuery`, if a code is not
+                allowed, or if `include_subclasses` is set but the ontology cannot be
+                loaded (rdflib missing).
+        """
+        if not isinstance(query, SeriesQuery):
+            raise FedbiomedValueError(
+                f"{ErrorNumbers.FB634.value}: expected a SeriesQuery, got "
+                f"{type(query).__name__}"
+            )
+
+        if query.modality is not None and not query.include_subclasses:
+            code_list = EucaimCdmReader.field_spec(
+                "image_series", "series_modality"
+            ).code_list
+            if bare_code(query.modality) not in code_list:
+                raise FedbiomedValueError(
+                    f"{ErrorNumbers.FB634.value}: SeriesQuery modality "
+                    f"{query.modality!r} is not a `series_modality` code of the "
+                    "EUCAIM CDM schema"
+                )
+
+        try:
+            filter_series(
+                _empty_frame(["series_uid", "study_uid", "series_modality"]),
+                _empty_frame(["study_uid", "patient_id"]),
+                _empty_frame(
+                    [
+                        "series_uid",
+                        "acquisition_parameter_code",
+                        "acquisition_parameter_value_code",
+                        "acquisition_parameter_value_unit",
+                    ],
+                    acquisition_parameter_value_number="Float64",
+                ),
+                modality=query.modality,
+                parameters=query.parameters,
+                include_subclasses=query.include_subclasses,
+            )
+        except (ValueError, ImportError) as e:
+            raise FedbiomedValueError(
+                f"{ErrorNumbers.FB634.value}: invalid SeriesQuery {query!r}: {e}"
+            ) from e
+
+    def find_series(self, query: SeriesQuery) -> Set[str]:
+        """Returns the `series_uid`s of the series matching `query`.
+
+        The query is not checked against the schema first: call
+        `check_series_query` for that.
+
+        Args:
+            query: Modality and acquisition parameters to match.
+
+        Returns:
+            The matching series UIDs. Empty if `query` has parameters but
+            `image_modality.csv` is missing (a warning is logged).
+
+        Raises:
+            FedbiomedError: if `query` is invalid or the tables cannot be loaded.
+        """
+        if query.parameters:
+            try:
+                _ = self._cdm.image_modality_data  # loads and caches the table
+            except FileNotFoundError:
+                logger.warning(
+                    "EUCAIM CDM: table 'image_modality' is absent from this node, no "
+                    f"series can match the acquisition parameters of {query!r}"
+                )
+                return set()
+            except (ValueError, TypeError, OSError) as e:
+                raise FedbiomedError(
+                    f"{ErrorNumbers.FB634.value}: cannot load EUCAIM CDM table "
+                    f"'image_modality' from {self._root}: {e}"
+                ) from e
+
+        try:
+            matches = self._cdm.find_series(
+                modality=query.modality,
+                parameters=query.parameters,
+                include_subclasses=query.include_subclasses,
+            )
+        except FileNotFoundError as e:
+            raise FedbiomedError(
+                f"{ErrorNumbers.FB634.value}: cannot find series for {query!r}: index "
+                f"table missing from {self._root}"
+            ) from e
+        except (ValueError, TypeError, ImportError, OSError) as e:
+            raise FedbiomedError(
+                f"{ErrorNumbers.FB634.value}: cannot find series for {query!r}: {e}"
+            ) from e
+
+        return {str(uid) for uid in matches["series_uid"].dropna()}
 
     def read_series(
         self,

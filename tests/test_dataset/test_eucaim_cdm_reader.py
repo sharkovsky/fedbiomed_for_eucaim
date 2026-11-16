@@ -1,4 +1,5 @@
 import logging
+import sys
 import warnings
 from pathlib import Path
 
@@ -6,12 +7,16 @@ import numpy as np
 import pandas as pd
 import pydicom
 import pytest
+from eucaim_cdm_reader import ParameterFilter
 from testsupport import fake_eucaim_cdm as fake
 
 from fedbiomed.common.constants import ErrorNumbers
 from fedbiomed.common.dataset_reader import _eucaim_cdm_reader
-from fedbiomed.common.dataset_reader._eucaim_cdm_reader import EucaimCdmReader
-from fedbiomed.common.exceptions import FedbiomedError
+from fedbiomed.common.dataset_reader._eucaim_cdm_reader import (
+    EucaimCdmReader,
+    SeriesQuery,
+)
+from fedbiomed.common.exceptions import FedbiomedError, FedbiomedValueError
 
 
 @pytest.fixture
@@ -68,7 +73,7 @@ def test_eucaim_cdm_reader_05_every_table_loads(reader, name):
 
 def test_eucaim_cdm_reader_06_table_types(reader):
     patients = reader.table("patient")
-    assert list(patients["patient_id"]) == [fake.PATIENT_IMG, fake.PATIENT_NO_IMG]
+    assert list(patients["patient_id"]) == list(fake.PATIENTS)
     assert isinstance(patients["patient_id"].dtype, pd.StringDtype)
 
     conditions = reader.table("cancer_condition")
@@ -89,14 +94,14 @@ def test_eucaim_cdm_reader_07_table_returns_a_copy(reader):
     first.drop(index=first.index, inplace=True)
 
     second = reader.table("patient")
-    assert list(second["patient_id"]) == [fake.PATIENT_IMG, fake.PATIENT_NO_IMG]
+    assert list(second["patient_id"]) == list(fake.PATIENTS)
 
 
 def test_eucaim_cdm_reader_08_missing_optional_column_is_absent(reader):
-    treatment = reader.table("treatment")
-    assert "treatment_type" in treatment.columns
-    assert "start_offset_from_diagnosis" not in treatment.columns
-    assert "start_offset_unit" not in treatment.columns
+    procedure = reader.table("procedure")
+    assert "procedure_code" in procedure.columns
+    assert "procedure_offset_from_diagnosis" not in procedure.columns
+    assert "procedure_offset_unit" not in procedure.columns
 
 
 @pytest.mark.parametrize("name", EucaimCdmReader.OPTIONAL_TABLES)
@@ -203,9 +208,9 @@ def test_eucaim_cdm_reader_17_read_series_options(reader):
     "patient_id, study_uid, series_uid",
     [
         # indexed, but no folder on disk
-        (fake.PATIENT_IMG, fake.STUDY, fake.SERIES_NO_DIR),
+        (fake.PATIENT_NO_DIR, fake.STUDY_NO_DIR, fake.SERIES_NO_DIR),
         # folder holds no readable DICOM file
-        (fake.PATIENT_IMG, fake.STUDY, fake.SERIES_UNREADABLE),
+        (fake.PATIENT_BROKEN, fake.STUDY_BROKEN, fake.SERIES_UNREADABLE),
         # study does not belong to that patient
         (fake.PATIENT_NO_IMG, fake.STUDY, fake.SERIES_OK),
         # series does not belong to that study
@@ -226,7 +231,7 @@ def test_eucaim_cdm_reader_18_read_series_nothing_to_read(
 
 def test_eucaim_cdm_reader_19_read_series_inconsistent_slices(reader):
     with pytest.raises(FedbiomedError, match="cannot build a volume"):
-        reader.read_series(fake.PATIENT_IMG, fake.STUDY, fake.SERIES_BAD_SIZE)
+        reader.read_series(fake.PATIENT_BROKEN, fake.STUDY_BROKEN, fake.SERIES_BAD_SIZE)
 
 
 @pytest.mark.parametrize("name", ["image_study", "image_series"])
@@ -274,7 +279,7 @@ def _library_records(records):
 
 def test_eucaim_cdm_reader_22_library_log_reaches_fedbiomed_logger(reader, fed_records):
     with pytest.raises(FedbiomedError):
-        reader.read_series(fake.PATIENT_IMG, fake.STUDY, fake.SERIES_NO_DIR)
+        reader.read_series(fake.PATIENT_NO_DIR, fake.STUDY_NO_DIR, fake.SERIES_NO_DIR)
 
     records = _library_records(fed_records)
     assert len(records) == 1
@@ -304,7 +309,7 @@ def test_eucaim_cdm_reader_24_library_log_not_duplicated_to_root(
     # caplog listens on the root logger
     caplog.set_level(logging.DEBUG)
     with pytest.raises(FedbiomedError):
-        reader.read_series(fake.PATIENT_IMG, fake.STUDY, fake.SERIES_NO_DIR)
+        reader.read_series(fake.PATIENT_NO_DIR, fake.STUDY_NO_DIR, fake.SERIES_NO_DIR)
     assert _library_records(fed_records)
     assert _library_records(caplog.records) == []
 
@@ -381,3 +386,138 @@ def test_eucaim_cdm_reader_27_real_volume_warning_is_logged(tmp_path, fed_record
     assert vol.affine is None
     messages = [r.getMessage() for r in _library_records(fed_records)]
     assert any("geometry tags" in m and fake.SERIES_OK in m for m in messages)
+
+
+# --- series queries ----------------------------------------------------------------------
+
+T1_FILTER = ParameterFilter(fake.TISSUE_CONTRAST, value_code=fake.T1)
+
+
+def test_eucaim_cdm_reader_28_series_query():
+    query = SeriesQuery(fake.MR_CODE, T1_FILTER)
+    assert query.parameters == (T1_FILTER,)
+    assert SeriesQuery(parameters=[T1_FILTER]).modality is None
+    # Frozen and hashable, so it can be compared and stored
+    assert query == SeriesQuery(fake.MR_CODE, [T1_FILTER])
+    assert hash(query) == hash(SeriesQuery(fake.MR_CODE, (T1_FILTER,)))
+
+
+@pytest.mark.parametrize(
+    "kwargs, match",
+    [
+        ({"modality": ""}, "`modality` must be a non-empty str"),
+        ({"modality": 3}, "`modality` must be a non-empty str"),
+        ({"modality": fake.MR_CODE, "parameters": "x"}, "`parameters` must be a"),
+        ({"modality": fake.MR_CODE, "parameters": {}}, "`parameters` must be a"),
+        ({"modality": fake.MR_CODE, "parameters": [3]}, "only contain ParameterFilter"),
+        ({"modality": fake.MR_CODE, "include_subclasses": 1}, "must be a bool"),
+        ({}, "needs a modality, a parameter, or both"),
+    ],
+)
+def test_eucaim_cdm_reader_29_series_query_bad_arguments(kwargs, match):
+    with pytest.raises(FedbiomedValueError, match=match) as exc:
+        SeriesQuery(**kwargs)
+    assert str(exc.value).startswith(ErrorNumbers.FB634.value)
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        SeriesQuery(fake.MR_CODE),
+        SeriesQuery("IMG1000038"),  # prefix is optional
+        SeriesQuery(fake.MR_CODE, [T1_FILTER, ParameterFilter("IMG1016306")]),
+        SeriesQuery(
+            parameters=ParameterFilter(
+                fake.SLICE_THICKNESS, min_value=1, max_value=3, unit=fake.MM
+            )
+        ),
+    ],
+)
+def test_eucaim_cdm_reader_30_check_series_query_ok(query):
+    EucaimCdmReader.check_series_query(query)
+
+
+@pytest.mark.parametrize(
+    "query, match",
+    [
+        ("EUCAIM:IMG1000038", "expected a SeriesQuery"),
+        (SeriesQuery("EUCAIM:IMG1000022"), "not a `series_modality` code"),
+        (SeriesQuery(parameters=ParameterFilter("EUCAIM:IMG1000038")), "code="),
+        (
+            SeriesQuery(
+                parameters=ParameterFilter(
+                    fake.TISSUE_CONTRAST, value_code="IMG1000038"
+                )
+            ),
+            "value_code=",
+        ),
+        (
+            SeriesQuery(
+                parameters=ParameterFilter(
+                    fake.SLICE_THICKNESS, max_value=3, unit=fake.DAY
+                )
+            ),
+            "unit=",
+        ),
+    ],
+)
+def test_eucaim_cdm_reader_31_check_series_query_errors(query, match):
+    with pytest.raises(FedbiomedValueError, match=match) as exc:
+        EucaimCdmReader.check_series_query(query)
+    assert str(exc.value).startswith(ErrorNumbers.FB634.value)
+
+
+def test_eucaim_cdm_reader_32_check_series_query_subclasses_need_rdflib(monkeypatch):
+    # A None entry makes `import rdflib` fail, whether rdflib is installed or not
+    monkeypatch.setitem(sys.modules, "rdflib", None)
+    from eucaim_cdm_reader import ontology
+
+    if getattr(ontology, "_index", None) is not None:  # pragma: no cover
+        pytest.skip("ontology already loaded in this process")
+    with pytest.raises(FedbiomedValueError, match="rdflib"):
+        EucaimCdmReader.check_series_query(
+            SeriesQuery(fake.MR_CODE, include_subclasses=True)
+        )
+
+
+@pytest.mark.parametrize(
+    "query, expected",
+    [
+        (SeriesQuery(fake.MR_CODE), {fake.SE1_MR, fake.SE4_MR}),
+        (SeriesQuery("IMG1000038"), {fake.SE1_MR, fake.SE4_MR}),
+        # The reader does not index: the orphan series matches too
+        (SeriesQuery(parameters=T1_FILTER), {fake.SE1_MR, fake.SE_ORPHAN}),
+        (SeriesQuery(fake.MR_CODE, T1_FILTER), {fake.SE1_MR}),
+        # 0.25 cm and 2.5 mm (stored without prefix) are both <= 3 mm; 5 mm is not
+        (
+            SeriesQuery(
+                parameters=ParameterFilter("IMG1016306", max_value=3, unit="COM1000152")
+            ),
+            {fake.SE1_MR, fake.SE1_CT},
+        ),
+        (SeriesQuery(fake.PET_CODE, T1_FILTER), set()),
+    ],
+)
+def test_eucaim_cdm_reader_33_find_series(reader, query, expected):
+    assert reader.find_series(query) == expected
+
+
+def test_eucaim_cdm_reader_34_find_series_without_image_modality(tmp_path, fed_records):
+    root = fake.build_cdm_dataset(tmp_path / "cdm", omit_tables=["image_modality"])
+    reader = EucaimCdmReader(root)
+
+    assert reader.find_series(SeriesQuery(fake.MR_CODE)) == {fake.SE1_MR, fake.SE4_MR}
+    assert fed_records == []
+
+    assert reader.find_series(SeriesQuery(fake.MR_CODE, T1_FILTER)) == set()
+    messages = [r.getMessage() for r in fed_records]
+    assert any("'image_modality' is absent" in m for m in messages)
+
+
+def test_eucaim_cdm_reader_35_find_series_bad_image_modality(tmp_path):
+    root = fake.build_cdm_dataset(
+        tmp_path / "cdm",
+        overrides={"image_modality": "modality_id,series_uid\nM1,X\n"},
+    )
+    with pytest.raises(FedbiomedError, match="cannot load EUCAIM CDM table"):
+        EucaimCdmReader(root).find_series(SeriesQuery(fake.MR_CODE, T1_FILTER))
