@@ -166,29 +166,34 @@ from fedbiomed.common.datamanager import DataManager
 from fedbiomed.common.dataset import EucaimCdmDataset, SeriesQuery
 from fedbiomed.common.training_plans import TorchTrainingPlan
 
-MR = "EUCAIM:IMG1000038"
-TISSUE_CONTRAST, T1, T2 = "IMG1016649", "IMG1016652", "IMG1016647"
-CHEMO, BIO = "EUCAIM:CLIN1024528", "EUCAIM:CLIN1014763"
-
-
-def make_dataset(transform=None, target_transform=None):
-    return EucaimCdmDataset(
-        data_modalities=["clinical", "t1", "t2"],
-        target_modalities="clinical",
-        input_columns=["patient.patient_birth_sex"],
-        target_columns=["treatment.treatment_type"],
-        vocabularies={"treatment.treatment_type": [CHEMO, BIO]},
-        series_queries={
-            "t1": SeriesQuery(MR, ParameterFilter(TISSUE_CONTRAST, value_code=T1)),
-            "t2": SeriesQuery(MR, ParameterFilter(TISSUE_CONTRAST, value_code=T2)),
-        },
-        timepoint_policy="earliest",
-        transform=transform,
-        target_transform=target_transform,
-    )
-
 
 class TreatmentPlan(TorchTrainingPlan):
+    # Only the class source and `init_dependencies` are sent to the nodes: constants and
+    # helpers must be defined inside the class, not at module level.
+    MR = "EUCAIM:IMG1000038"
+    TISSUE_CONTRAST, T1, T2 = "IMG1016649", "IMG1016652", "IMG1016647"
+    CHEMO, BIO = "EUCAIM:CLIN1024528", "EUCAIM:CLIN1014763"
+
+    @classmethod
+    def dataset(cls, transform=None, target_transform=None):
+        return EucaimCdmDataset(
+            data_modalities=["clinical", "t1", "t2"],
+            target_modalities="clinical",
+            input_columns=["patient.patient_birth_sex"],
+            target_columns=["treatment.treatment_type"],
+            vocabularies={"treatment.treatment_type": [cls.CHEMO, cls.BIO]},
+            series_queries={
+                "t1": SeriesQuery(
+                    cls.MR, ParameterFilter(cls.TISSUE_CONTRAST, value_code=cls.T1)
+                ),
+                "t2": SeriesQuery(
+                    cls.MR, ParameterFilter(cls.TISSUE_CONTRAST, value_code=cls.T2)
+                ),
+            },
+            timepoint_policy="earliest",
+            transform=transform,
+            target_transform=target_transform,
+        )
 
     def init_dependencies(self):
         return [
@@ -199,10 +204,14 @@ class TreatmentPlan(TorchTrainingPlan):
         ]
 
     def init_model(self):
-        return self.Net(self.model_args())
+        dataset = self.dataset()  # needs no data
+        return self.Net(
+            n_clinical=len(dataset.input_feature_names),
+            n_targets=len(dataset.target_feature_names),
+        )
 
     class Net(nn.Module):
-        ...  # uses model_args["n_clinical"] and model_args["n_targets"]
+        ...
 
     def training_data(self):
         image = Compose([
@@ -210,7 +219,7 @@ class TreatmentPlan(TorchTrainingPlan):
             Resize((128, 128, 32)),
             NormalizeIntensity(),
         ])
-        dataset = make_dataset(
+        dataset = self.dataset(
             transform={
                 "t1": image,
                 "t2": image,
@@ -226,22 +235,18 @@ class TreatmentPlan(TorchTrainingPlan):
         )
 ```
 
-Since the feature layout needs no data, the researcher can size the model locally before
+Since the feature layout needs no data, the model can be sized from the dataset
+description, as `init_model` does above, and the researcher can inspect it locally before
 starting the experiment:
 
 ```python
-dataset = make_dataset()
+dataset = TreatmentPlan.dataset()
 dataset.input_feature_names
 # ['patient.patient_birth_sex=EUCAIM:COM1001366',     (the full code list of the
 #  'patient.patient_birth_sex=EUCAIM:COM1001370']      column: Male, Female)
 dataset.target_feature_names
 # ['treatment.treatment_type=EUCAIM:CLIN1024528',
 #  'treatment.treatment_type=EUCAIM:CLIN1014763']
-
-model_args = {
-    "n_clinical": len(dataset.input_feature_names),
-    "n_targets": len(dataset.target_feature_names),
-}
 ```
 
 The constructor checks every argument against the CDM schema. A typo in a column name, an
