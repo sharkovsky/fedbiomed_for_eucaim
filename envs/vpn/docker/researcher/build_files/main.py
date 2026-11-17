@@ -8,25 +8,37 @@ by the EUCAIM sandbox:
 - the dataset ID, passed on the command line and used as the dataset tag
 
 Experiment results (including breakpoints) are copied to /sandbox/experiments.
+
+The paths are the container's. Environment variables override them, so that the same
+script can run outside the container (see `envs/vpn/docker/eucaim_sandbox/run_local.sh`):
+`EUCAIM_ARGUMENTS_FILE`, `EUCAIM_SANDBOX_DIR` (results go to its `experiments`
+folder), `FBM_RESEARCHER_COMPONENT_ROOT` and `EUCAIM_NODE_STARTUP_DELAY_S`.
 """
 
 import argparse
 import json
+import os
 import shutil
 import time
-
-from fedbiomed.researcher.aggregators.fedavg import FedAverage
-from fedbiomed.researcher.federated_workflows import Experiment
 
 # Import user-provided training plan
 from eucaim_training_plan import EucaimTrainingPlan
 
-CONFIG_FILE = "/app/config/arguments.json"
-EXPERIMENTS_DIR = "/fbm-researcher/var/experiments"
-RESULTS_DIR = "/sandbox/experiments"
+from fedbiomed.researcher.aggregators.fedavg import FedAverage
+from fedbiomed.researcher.federated_workflows import Experiment
+
+CONFIG_FILE = os.environ.get("EUCAIM_ARGUMENTS_FILE", "/app/config/arguments.json")
+EXPERIMENTS_DIR = os.path.join(
+    os.environ.get("FBM_RESEARCHER_COMPONENT_ROOT", "/fbm-researcher"),
+    "var",
+    "experiments",
+)
+RESULTS_DIR = os.path.join(
+    os.environ.get("EUCAIM_SANDBOX_DIR", "/sandbox"), "experiments"
+)
 
 # Time given to the nodes to start and connect before launching the experiment
-NODE_STARTUP_DELAY_S = 30
+NODE_STARTUP_DELAY_S = int(os.environ.get("EUCAIM_NODE_STARTUP_DELAY_S", "30"))
 
 
 def load_config(path: str) -> tuple[dict, dict, dict]:
