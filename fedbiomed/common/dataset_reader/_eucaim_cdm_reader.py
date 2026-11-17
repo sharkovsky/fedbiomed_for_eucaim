@@ -17,21 +17,16 @@ from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Set, Tuple, Union
 
 import pandas as pd
-from eucaim_cdm_reader import (
-    CdmReader,
-    DicomVolume,
-    ParameterFilter,
-    schema,
-    series_to_volume,
-)
-from eucaim_cdm_reader.query import bare_code, filter_series
-from eucaim_cdm_reader.schema import FieldSpec
+from eucaim_cdm_reader import CdmReader, ParameterFilter, schema
+from eucaim_cdm_reader.dicom_array import DicomVolume, series_to_volume
+from eucaim_cdm_reader.query import filter_series
+from eucaim_cdm_reader.schema import FieldSpec, bare_code
 
 from fedbiomed.common.constants import ErrorNumbers
 from fedbiomed.common.exceptions import FedbiomedError, FedbiomedValueError
 from fedbiomed.common.logger import logger
 
-# Parent of every logger of the library (`eucaim_cdm_reader.reader`, `..._utils`, ...)
+# Parent of every logger of the library (`eucaim_cdm_reader.reader`, `...query`, ...)
 _LIBRARY_LOGGER = logging.getLogger("eucaim_cdm_reader")
 
 
@@ -73,19 +68,22 @@ def _bridge_library_logging() -> None:
 
 _bridge_library_logging()
 
-# Normalized tables accessible through the reader, with their schema field list and
-# whether the CDM makes them mandatory. The split mirrors `CdmReader.validate()`.
-_TABLES: Dict[str, Tuple[List[FieldSpec], bool]] = {
-    "patient": (schema.PATIENT_FIELDS, True),
-    "cancer_condition": (schema.CANCER_CONDITION_FIELDS, True),
-    "procedure": (schema.PROCEDURE_FIELDS, True),
-    "episode": (schema.EPISODE_FIELDS, True),
-    "episode_event": (schema.EPISODE_EVENT_FIELDS, True),
-    "image_study": (schema.IMAGE_STUDY_FIELDS, True),
-    "image_series": (schema.IMAGE_SERIES_FIELDS, True),
-    "treatment": (schema.TREATMENT_FIELDS, False),
-    "surgical_procedure": (schema.SURGICAL_PROCEDURE_FIELDS, False),
-    "radiotherapy": (schema.RADIOTHERAPY_FIELDS, False),
+# Normalized tables accessible through the reader, with whether the CDM makes them
+# mandatory (`eucaim_cdm_reader.schema.MANDATORY_TABLES`, also used by its validation).
+_TABLES: Dict[str, bool] = {
+    name: name in schema.MANDATORY_TABLES
+    for name in (
+        "patient",
+        "cancer_condition",
+        "procedure",
+        "episode",
+        "episode_event",
+        "image_study",
+        "image_series",
+        "treatment",
+        "surgical_procedure",
+        "radiotherapy",
+    )
 }
 
 
@@ -97,6 +95,8 @@ class SeriesQuery:
     matches when its `series_modality` is `modality` (if given) and it satisfies every
     `ParameterFilter` on its acquisition parameters (rows of `image_modality.csv`).
     Codes match with or without their `EUCAIM:` prefix, in the query and in the data.
+    In the query, a code may also be given as its label in the CDM schema, in any
+    letter case (for example `"Magnetic resonance imaging"`).
 
     Example: T1-weighted MR series, i.e. MR with Tissue Contrast = T1 weighted::
 
@@ -106,7 +106,7 @@ class SeriesQuery:
         )
 
     Attributes:
-        modality: `series_modality` code, or `None` to match any modality.
+        modality: `series_modality` code or label, or `None` to match any modality.
         parameters: Conditions on the acquisition parameters; a single
             `ParameterFilter` or an iterable of them (stored as a tuple).
         include_subclasses: Also match the EUCAIM ontology subclasses of `modality`
@@ -186,10 +186,10 @@ class EucaimCdmReader:
     """
 
     MANDATORY_TABLES: Tuple[str, ...] = tuple(
-        name for name, (_, mandatory) in _TABLES.items() if mandatory
+        name for name, mandatory in _TABLES.items() if mandatory
     )
     OPTIONAL_TABLES: Tuple[str, ...] = tuple(
-        name for name, (_, mandatory) in _TABLES.items() if not mandatory
+        name for name, mandatory in _TABLES.items() if not mandatory
     )
 
     def __init__(self, root: str | Path) -> None:
@@ -213,7 +213,6 @@ class EucaimCdmReader:
                 f"{ErrorNumbers.FB634.value}: EUCAIM CDM dataset root is not a folder: "
                 f"{self._root}"
             )
-        # Uses the rule exceptions bundled with the library (its default).
         self._cdm = CdmReader(self._root)
 
     def root(self) -> Path:
@@ -223,9 +222,11 @@ class EucaimCdmReader:
     def table(self, name: str) -> Optional[pd.DataFrame]:
         """Returns one normalized table.
 
-        Columns use the nullable pandas dtypes (`StringDtype`, `Float64`, `Int64`) and
-        date columns are parsed to timestamps. An optional column absent from the CSV is
-        absent from the returned DataFrame.
+        Columns use the nullable pandas dtypes (`StringDtype`, `Float64`, `Int64`,
+        `boolean`) and date columns are parsed to `datetime64[us]`. A value that cannot be
+        converted to its column's type is read as missing (the library logs a warning).
+        Columns that are not in the schema are dropped, and an optional column absent
+        from the CSV is absent from the returned DataFrame.
 
         Args:
             name: Table name, i.e. the CSV file stem in `clinical_data/`
@@ -245,26 +246,23 @@ class EucaimCdmReader:
                 f"{ErrorNumbers.FB634.value}: unsupported EUCAIM CDM table '{name}'. "
                 f"Supported tables: {sorted(_TABLES)}"
             )
-        _, mandatory = _TABLES[name]
-
         try:
-            df = getattr(self._cdm, f"{name}_data")
+            # `CdmReader` caches the table and returns a copy of it
+            return self._cdm.table(name)
         except FileNotFoundError as e:
-            if not mandatory:
+            if not _TABLES[name]:
                 return None
             raise FedbiomedError(
                 f"{ErrorNumbers.FB634.value}: mandatory EUCAIM CDM table '{name}' is "
                 f"missing from {self._root}"
             ) from e
         except (ValueError, TypeError, OSError) as e:
-            # ValueError also covers pandas parser errors and decoding errors
+            # ValueError covers a missing required column, and pandas parser and
+            # decoding errors
             raise FedbiomedError(
                 f"{ErrorNumbers.FB634.value}: cannot load EUCAIM CDM table '{name}' "
                 f"from {self._root}: {e}"
             ) from e
-
-        # The underlying reader caches the DataFrame: never hand out the cached object.
-        return df.copy()
 
     @staticmethod
     def field_spec(table: str, column: str) -> FieldSpec:
@@ -288,14 +286,13 @@ class EucaimCdmReader:
                 f"{ErrorNumbers.FB634.value}: unsupported EUCAIM CDM table '{table}'. "
                 f"Supported tables: {sorted(_TABLES)}"
             )
-        fields, _ = _TABLES[table]
-        for spec in fields:
-            if spec.name == column:
-                return spec
-        raise FedbiomedError(
-            f"{ErrorNumbers.FB634.value}: EUCAIM CDM table '{table}' has no column "
-            f"'{column}'"
-        )
+        try:
+            return schema.TABLES[table].field(column)
+        except KeyError as e:
+            raise FedbiomedError(
+                f"{ErrorNumbers.FB634.value}: EUCAIM CDM table '{table}' has no column "
+                f"'{column}'"
+            ) from e
 
     @staticmethod
     def check_series_query(query: SeriesQuery) -> None:
@@ -322,10 +319,14 @@ class EucaimCdmReader:
             )
 
         if query.modality is not None and not query.include_subclasses:
-            code_list = EucaimCdmReader.field_spec(
-                "image_series", "series_modality"
-            ).code_list
-            if bare_code(query.modality) not in code_list:
+            field = EucaimCdmReader.field_spec("image_series", "series_modality")
+            try:
+                code = bare_code(query.modality, field)
+            except ValueError as e:  # a label shared by several codes
+                raise FedbiomedValueError(
+                    f"{ErrorNumbers.FB634.value}: invalid SeriesQuery {query!r}: {e}"
+                ) from e
+            if code not in field.codes:
                 raise FedbiomedValueError(
                     f"{ErrorNumbers.FB634.value}: SeriesQuery modality "
                     f"{query.modality!r} is not a `series_modality` code of the "
@@ -349,7 +350,7 @@ class EucaimCdmReader:
                 parameters=query.parameters,
                 include_subclasses=query.include_subclasses,
             )
-        except (ValueError, ImportError) as e:
+        except (ValueError, TypeError, ImportError) as e:
             raise FedbiomedValueError(
                 f"{ErrorNumbers.FB634.value}: invalid SeriesQuery {query!r}: {e}"
             ) from e
@@ -372,7 +373,7 @@ class EucaimCdmReader:
         """
         if query.parameters:
             try:
-                _ = self._cdm.image_modality_data  # loads and caches the table
+                self._cdm.table("image_modality")  # loads and caches the table
             except FileNotFoundError:
                 logger.warning(
                     "EUCAIM CDM: table 'image_modality' is absent from this node, no "
@@ -439,8 +440,8 @@ class EucaimCdmReader:
         )
 
         try:
-            dicom = self._cdm.get_dicom_data(
-                patient_id=patient_id, study_uid=study_uid, series_uid=series_uid
+            dicom = self._cdm.load_dicom(
+                series_uid, study_uid=study_uid, patient_id=patient_id
             )
         except FileNotFoundError as e:
             raise FedbiomedError(

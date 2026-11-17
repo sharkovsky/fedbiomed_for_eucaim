@@ -11,7 +11,7 @@ from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Union
 
 import numpy as np
 import torch
-from eucaim_cdm_reader import DicomVolume
+from eucaim_cdm_reader.dicom_array import DicomVolume
 
 from fedbiomed.common.constants import ErrorNumbers
 from fedbiomed.common.dataset_controller._eucaim_cdm_controller import (
@@ -277,9 +277,7 @@ class EucaimCdmDataset(Dataset):
         if not modalities:
             raise _err(f"`{arg}` cannot be empty")
 
-        code_list = EucaimCdmReader.field_spec(
-            "image_series", "series_modality"
-        ).code_list
+        code_list = EucaimCdmReader.field_spec("image_series", "series_modality").codes
         for modality in modalities:
             if not isinstance(modality, str):
                 raise _err(f"`{arg}` must only contain str, got {modality!r}")

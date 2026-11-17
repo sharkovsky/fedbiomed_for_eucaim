@@ -105,7 +105,7 @@ dependencies = [
 	"pygments ~=2.18.0",
 	"nibabel ~=5.3",
 	"pyarrow>=21.0.0",
-	"eucaim-cdm-reader @ git+https://gitlab.inria.fr/eucaim_inria/eucaim_cdm_reader.git@v0.2.2",
+	"eucaim-cdm-reader @ git+https://gitlab.inria.fr/eucaim_inria/eucaim_cdm_reader.git@v0.3.0",
 ]
 
 requires-python = "<3.12,>=3.10"

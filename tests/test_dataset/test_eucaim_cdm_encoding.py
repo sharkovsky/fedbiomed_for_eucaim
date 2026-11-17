@@ -3,6 +3,9 @@ import logging
 import numpy as np
 import pandas as pd
 import pytest
+from eucaim_cdm_reader import schema
+from eucaim_cdm_reader.schema import BOOLEAN, CODE, INTEGER, NUMBER
+from testsupport import fake_eucaim_cdm as fake
 
 from fedbiomed.common.dataset._eucaim_cdm_encoding import (
     UNIT_PAIRS,
@@ -10,7 +13,7 @@ from fedbiomed.common.dataset._eucaim_cdm_encoding import (
     is_one_row_table,
 )
 from fedbiomed.common.dataset_controller._eucaim_cdm_controller import CLINICAL_TABLES
-from fedbiomed.common.dataset_reader._eucaim_cdm_reader import _TABLES, EucaimCdmReader
+from fedbiomed.common.dataset_reader._eucaim_cdm_reader import EucaimCdmReader
 from fedbiomed.common.exceptions import FedbiomedError, FedbiomedValueError
 
 MALE, FEMALE = "EUCAIM:COM1001366", "EUCAIM:COM1001370"  # patient_birth_sex
@@ -78,7 +81,7 @@ def test_eucaim_cdm_encoding_02_default_vocabulary_is_full_sorted_code_list():
     plan = EncodingPlan([SEX])
     assert plan.feature_names() == [f"{SEX}={MALE}", f"{SEX}={FEMALE}"]
 
-    code_list = EucaimCdmReader.field_spec("treatment", "treatment_type").code_list
+    code_list = EucaimCdmReader.field_spec("treatment", "treatment_type").codes
     names = EncodingPlan([TREATMENT_TYPE]).feature_names()
     assert names == [f"{TREATMENT_TYPE}=EUCAIM:{c}" for c in sorted(code_list)]
 
@@ -104,14 +107,10 @@ def test_eucaim_cdm_encoding_04_width_matches_feature_names_for_every_column():
     """Every encodable column of every supported table, in one plan."""
     columns, reducers = [], {}
     for table in CLINICAL_TABLES:
-        fields, _ = _TABLES[table]
-        for spec in fields:
+        for spec in schema.TABLES[table].fields:
             name = f"{table}.{spec.name}"
-            numeric = spec.xsd_range == "boolean" or spec.pandas_dtype in (
-                "Int64",
-                "Float64",
-            )
-            if spec.code_list or numeric:
+            numeric = spec.kind in (BOOLEAN, INTEGER, NUMBER)
+            if spec.kind == CODE or numeric:
                 columns.append(name)
                 if numeric and not is_one_row_table(table, with_images=False):
                     reducers[name] = "mean"
@@ -128,8 +127,8 @@ def test_eucaim_cdm_encoding_05_unit_pairs_match_the_schema():
         unit_table, unit_column = unit.split(".", 1)
         assert table == unit_table
         spec = EucaimCdmReader.field_spec(table, column)
-        assert spec.pandas_dtype in ("Int64", "Float64")
-        assert EucaimCdmReader.field_spec(table, unit_column).code_list
+        assert spec.kind in (INTEGER, NUMBER)
+        assert EucaimCdmReader.field_spec(table, unit_column).kind == CODE
 
 
 def test_eucaim_cdm_encoding_06_layout_does_not_depend_on_local_data():
@@ -283,21 +282,33 @@ def test_eucaim_cdm_encoding_18_absent_unit_column():
     assert np.isnan(plan.encode(rows)).all()
 
 
-@pytest.mark.parametrize(
-    "value, expected",
-    [("true", 1), (" TRUE ", 1), ("1", 1), ("False", 0), ("0", 0), (pd.NA, np.nan)],
-)
+@pytest.mark.parametrize("value, expected", [(True, 1), (False, 0), (pd.NA, np.nan)])
 def test_eucaim_cdm_encoding_19_boolean(value, expected):
+    """The reader types boolean columns with the nullable `boolean` dtype."""
     plan = EncodingPlan(["patient.patient_deceased"])
-    rows = {"patient": _df(patient_deceased=[value])}
+    rows = {"patient": pd.DataFrame({"patient_deceased": pd.array([value], "boolean")})}
     np.testing.assert_array_equal(plan.encode(rows), [expected])
 
 
-def test_eucaim_cdm_encoding_20_bad_boolean_literal(warnings_logged):
+def test_eucaim_cdm_encoding_20_boolean_literals_read_from_csv(tmp_path):
+    """Boolean literals of the CSV, as typed by the reader, then encoded.
+
+    The reader accepts true/false/1/0 in any case and reads anything else as missing.
+    """
+    literals = ["true", " TRUE ", "1", "False", "0", "", "maybe"]
+    patients = (
+        "patient_id,patient_birth_sex,patient_managing_organization_id,"
+        "patient_diagnostic_category,patient_deceased\n"
+    ) + "".join(
+        f"P{i},{MALE},ORG-1,EUCAIM:COM1001087,{value}\n"
+        for i, value in enumerate(literals)
+    )
+    root = fake.build_cdm_dataset(tmp_path / "cdm", overrides={"patient": patients})
+    table = EucaimCdmReader(root).table("patient")
+
     plan = EncodingPlan(["patient.patient_deceased"])
-    rows = {"patient": _df(patient_deceased=["maybe"])}
-    assert np.isnan(plan.encode(rows)).all()
-    assert any("patient.patient_deceased" in m for m in warnings_logged())
+    encoded = [plan.encode({"patient": table.iloc[[i]]})[0] for i in range(len(table))]
+    np.testing.assert_array_equal(encoded, [1, 1, 1, 0, 0, np.nan, np.nan])
 
 
 # --- missing data ------------------------------------------------------------------------

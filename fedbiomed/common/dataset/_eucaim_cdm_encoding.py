@@ -7,7 +7,7 @@ Encodes the clinical rows of a EUCAIM CDM sample into a 1-D float vector.
 The layout of the vector depends only on the schema and on the researcher's arguments,
 never on local data, so it is identical on every node:
 
-- a coded column (with a `code_list`) gives one 0/1 entry per vocabulary code: one-hot
+- a coded column (with a schema code list) gives one 0/1 entry per vocabulary code: one-hot
   for a one-row table, multi-hot (1 if any row has the code) for a many-row table;
 - a numeric or boolean column gives one entry: the value for a one-row table, or the
   `min` / `max` / `mean` of the rows for a many-row table (reducer required);
@@ -20,6 +20,7 @@ from typing import Dict, Iterable, List, Mapping, Optional, Tuple
 
 import numpy as np
 import pandas as pd
+from eucaim_cdm_reader.schema import BOOLEAN, CODE, DATE, INTEGER, NUMBER
 
 from fedbiomed.common.constants import ErrorNumbers
 from fedbiomed.common.dataset_controller._eucaim_cdm_controller import CLINICAL_TABLES
@@ -49,8 +50,6 @@ UNIT_PAIRS: Dict[str, str] = {
     "episode.episode_effective": "episode.episode_effective_unit",
     "image_study.study_offset_from_diagnosis": "image_study.study_offset_unit",
 }
-
-_BOOLEAN_LITERALS = {"true": 1.0, "1": 1.0, "false": 0.0, "0": 0.0}
 
 
 def _err(msg: str) -> FedbiomedValueError:
@@ -143,34 +142,26 @@ class _NumericEncoder(_ColumnEncoder):
         table: str,
         column: str,
         one_row: bool,
-        boolean: bool,
         reducer: Optional[str],
         unit_column: Optional[str],
     ):
         super().__init__(table, column, one_row)
-        self.boolean = boolean
         self.reducer = reducer
         self.unit_column = unit_column
         self._warned_units = False
-        self._warned_boolean = False
 
     def feature_names(self) -> List[str]:
         """`table.column`, or `table.column:reducer` for a many-row table."""
         return [self.name if self.reducer is None else f"{self.name}:{self.reducer}"]
 
-    def _values(self, series: pd.Series) -> np.ndarray:
-        """The column as floats, `NaN` for missing (or unreadable boolean) values."""
-        if not self.boolean:
-            return series.astype("Float64").to_numpy(dtype=np.float64, na_value=np.nan)
-        literals = series.astype("string").str.strip().str.lower()
-        values = literals.map(_BOOLEAN_LITERALS)
-        if (literals.notna() & values.isna()).any() and not self._warned_boolean:
-            logger.warning(
-                f"EUCAIM CDM: column '{self.name}' holds values other than "
-                "true/false/1/0, encoded as missing"
-            )
-            self._warned_boolean = True
-        return values.to_numpy(dtype=np.float64, na_value=np.nan)
+    @staticmethod
+    def _values(series: pd.Series) -> np.ndarray:
+        """The column as floats (`True` / `False` give 1 / 0), `NaN` for missing values.
+
+        The reader has already typed the column (`Int64`, `Float64` or `boolean`) and
+        read unconvertible values as missing.
+        """
+        return series.astype("Float64").to_numpy(dtype=np.float64, na_value=np.nan)
 
     def _encode(self, rows: pd.DataFrame) -> np.ndarray:
         """The value (one-row table) or the reduced values (many-row table)."""
@@ -241,13 +232,13 @@ class EncodingPlan:
             spec = EucaimCdmReader.field_spec(table, column)
             one_row = is_one_row_table(table, with_images)
 
-            if spec.code_list:
+            if spec.kind == CODE:
                 if name in reducers:
                     raise _err(f"reducer given for coded column '{name}'")
                 vocabulary = (
-                    normalize_vocabulary(name, vocabularies[name], spec.code_list)
+                    normalize_vocabulary(name, vocabularies[name], spec.codes)
                     if name in vocabularies
-                    else sorted(spec.code_list)
+                    else sorted(spec.codes)
                 )
                 self._encoders.append(_CodedEncoder(table, column, one_row, vocabulary))
                 continue
@@ -255,9 +246,8 @@ class EncodingPlan:
             if name in vocabularies:
                 raise _err(f"vocabulary given for column '{name}', which is not coded")
 
-            boolean = spec.xsd_range == "boolean"
-            if not boolean and spec.pandas_dtype not in ("Int64", "Float64"):
-                kind = "a date" if spec.is_date else "an identifier or free text"
+            if spec.kind not in (BOOLEAN, INTEGER, NUMBER):
+                kind = "a date" if spec.kind == DATE else "an identifier or free text"
                 raise _err(f"column '{name}' is {kind} and cannot be encoded")
 
             reducer = reducers.get(name)
@@ -281,7 +271,6 @@ class EncodingPlan:
                     table,
                     column,
                     one_row,
-                    boolean,
                     reducer,
                     None if unit is None else unit.split(".", 1)[1],
                 )

@@ -103,7 +103,8 @@ The allowed codes of any column can be listed without data:
 from fedbiomed.common.dataset_reader._eucaim_cdm_reader import EucaimCdmReader
 
 spec = EucaimCdmReader.field_spec("treatment", "treatment_type")
-sorted(spec.code_list)   # bare codes, e.g. 'CLIN1014763', 'CLIN1024528', ...
+sorted(spec.codes)   # bare codes, e.g. 'CLIN1014763', 'CLIN1024528', ...
+spec.labels          # {code: label}, e.g. 'CLIN1024528': 'Chemotherapy'
 ```
 
 ### Modalities
@@ -262,6 +263,11 @@ The CDM fixes how many rows a table can give for one patient. That decides the e
 
 Booleans are read from `true`/`false`/`1`/`0` (any case) and encoded as 1/0.
 
+When a node loads a table, a value that cannot be read as its column's type (for example
+`abc` in a numeric column, or `maybe` in a boolean one) is read as missing, and the node
+log gives the number of such values per column. Validate the dataset with
+`eucaim_cdm_reader.validate_dataset` beforehand to find them.
+
 ```python
 EucaimCdmDataset(
     data_modalities="clinical",
@@ -370,6 +376,9 @@ ParameterFilter("IMG1016756")                                   # Contrast agent
 ```
 
 - Codes are accepted with or without the `EUCAIM:` prefix, in the query and in the data.
+  In the query, a code can also be written as its label in the CDM schema, in any letter
+  case: `SeriesQuery("Magnetic resonance imaging", ParameterFilter("Tissue Contrast",
+  value_code="T1 weighted"))` is the T1 query above.
 - Numeric bounds are inclusive and need a unit. Stored values are converted within the
   same quantity (cm to mm, Gy to mGy). Rows with a missing or incompatible unit never match.
 - Parameter codes, value codes and units must be allowed by the CDM schema. The dataset

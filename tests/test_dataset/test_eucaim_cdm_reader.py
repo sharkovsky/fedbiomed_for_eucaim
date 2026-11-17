@@ -7,7 +7,7 @@ import numpy as np
 import pandas as pd
 import pydicom
 import pytest
-from eucaim_cdm_reader import ParameterFilter
+from eucaim_cdm_reader import ParameterFilter, schema
 from testsupport import fake_eucaim_cdm as fake
 
 from fedbiomed.common.constants import ErrorNumbers
@@ -152,13 +152,13 @@ def test_eucaim_cdm_reader_13_empty_csv_raises(tmp_path):
 def test_eucaim_cdm_reader_14_field_spec():
     spec = EucaimCdmReader.field_spec("image_series", "series_modality")
     assert spec.name == "series_modality"
-    assert spec.code_list is not None
-    assert fake.CT_CODE.removeprefix("EUCAIM:") in spec.code_list
+    assert spec.kind == schema.CODE
+    assert fake.CT_CODE.removeprefix("EUCAIM:") in spec.codes
 
     spec = EucaimCdmReader.field_spec(
         "cancer_condition", "cancer_condition_asserted_date"
     )
-    assert spec.is_date
+    assert spec.kind == schema.DATE
 
 
 def test_eucaim_cdm_reader_15_field_spec_errors():
@@ -286,7 +286,7 @@ def test_eucaim_cdm_reader_22_library_log_reaches_fedbiomed_logger(reader, fed_r
     record = records[0]
     assert record.levelno == logging.WARNING
     assert record.name == "eucaim_cdm_reader.reader"
-    assert "DICOM series directory not found" in record.getMessage()
+    assert "DICOM series folder not found" in record.getMessage()
     # Never forwarded to a researcher by the gRPC handler
     assert not hasattr(record, "broadcast")
     assert not hasattr(record, "researcher_id")
@@ -521,3 +521,16 @@ def test_eucaim_cdm_reader_35_find_series_bad_image_modality(tmp_path):
     )
     with pytest.raises(FedbiomedError, match="cannot load EUCAIM CDM table"):
         EucaimCdmReader(root).find_series(SeriesQuery(fake.MR_CODE, T1_FILTER))
+
+
+def test_eucaim_cdm_reader_36_series_query_with_labels(reader):
+    """Codes may be given as their label in the CDM schema, in any letter case."""
+    by_label = SeriesQuery(
+        "magnetic resonance imaging",
+        ParameterFilter("Tissue Contrast", value_code="T1 weighted"),
+    )
+    EucaimCdmReader.check_series_query(by_label)
+    assert reader.find_series(by_label) == reader.find_series(
+        SeriesQuery(fake.MR_CODE, T1_FILTER)
+    )
+    assert reader.find_series(by_label) == {fake.SE1_MR}
