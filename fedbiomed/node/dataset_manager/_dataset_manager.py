@@ -150,7 +150,7 @@ class DatasetManager:
 
         Args:
             name: Name of the dataset
-            data_type: Type of the dataset (e.g. 'tabular', 'image-folder', 'medical-folder')
+            data_type: Type of the dataset (e.g. 'tabular', 'image-folder', 'medical-folder', 'eucaim-cdm')
             tags: Tags associated with the dataset
             description: Description of the dataset
             path: Path to the dataset
@@ -263,7 +263,7 @@ class DatasetManager:
         and dtypes, then assembles the fields to store in the database.
 
         Args:
-            data_type: Dataset type string (e.g. 'tabular', 'medical-folder', 'custom').
+            data_type: Dataset type string (e.g. 'tabular', 'medical-folder', 'eucaim-cdm', 'custom').
             path: Filesystem root path of the dataset.
             dataset_id: ID to assign; if None, the table will generate one on insert.
             dataset_parameters: Extra controller kwargs (e.g. tabular_file for medical-folder).

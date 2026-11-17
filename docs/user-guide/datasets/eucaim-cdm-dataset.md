@@ -17,15 +17,7 @@ site-specific file names. The same training plan runs unchanged on every EUCAIM 
 
 !!! warning "Preview"
     The EUCAIM CDM dataset is under development in the EUCAIM fork of Fed-BioMed.
-    The dataset type (`eucaim-cdm`) is not yet available in `fedbiomed node dataset add`
-    or in the GUI, and the classes are not yet exported from `fedbiomed.common.dataset`.
-    Import them from their modules, as in the examples below:
-
-    ```python
-    from fedbiomed.common.dataset._eucaim_cdm_dataset import EucaimCdmDataset
-    from fedbiomed.common.dataset_reader._eucaim_cdm_reader import SeriesQuery
-    from eucaim_cdm_reader import ParameterFilter
-    ```
+    It can be added to a node with `fedbiomed node dataset add`, but not yet from the GUI.
 
 ## Key Features
 
@@ -78,6 +70,37 @@ Data holders are expected to validate their dataset (for example with
 only ignores rows that would make the patient/study/series index ambiguous (missing or
 duplicated identifiers, studies of unknown patients, ...) and logs a warning on the node.
 
+### Adding the dataset to a node
+
+The data holder adds the dataset with the `eucaim-cdm` data type and the dataset `root`
+folder, either interactively:
+
+```shell
+$ fedbiomed node --path my-node dataset add
+```
+
+or from a JSON description file:
+
+```shell
+$ fedbiomed node --path my-node dataset add --file eucaim_dataset.json
+```
+
+```json
+{
+    "name": "EUCAIM dataset",
+    "description": "Cancer imaging dataset in the EUCAIM CDM",
+    "tags": "eucaim,my-dataset",
+    "data_type": "eucaim-cdm",
+    "path": "/data/eucaim/root"
+}
+```
+
+`tags` is a single comma-separated string, not a JSON list. The node indexes the patients,
+studies and series when the dataset is added, and stores the number of patients and the
+number of series per `series_modality` code as the dataset shape. No other parameter is
+needed: everything else (columns, modalities, timepoint policy) is chosen by the researcher
+in the training plan.
+
 ### Codes
 
 Coded values are EUCAIM ontology codes such as `EUCAIM:IMG1000038` (*Magnetic resonance
@@ -100,7 +123,7 @@ imaging*). The codes used in this page:
 The allowed codes of any column can be listed without data:
 
 ```python
-from fedbiomed.common.dataset_reader._eucaim_cdm_reader import EucaimCdmReader
+from fedbiomed.common.dataset_reader import EucaimCdmReader
 
 spec = EucaimCdmReader.field_spec("treatment", "treatment_type")
 sorted(spec.codes)   # bare codes, e.g. 'CLIN1014763', 'CLIN1024528', ...
@@ -140,8 +163,7 @@ from monai.transforms import Compose, EnsureChannelFirst, NormalizeIntensity, Re
 
 from eucaim_cdm_reader import ParameterFilter
 from fedbiomed.common.datamanager import DataManager
-from fedbiomed.common.dataset._eucaim_cdm_dataset import EucaimCdmDataset
-from fedbiomed.common.dataset_reader._eucaim_cdm_reader import SeriesQuery
+from fedbiomed.common.dataset import EucaimCdmDataset, SeriesQuery
 from fedbiomed.common.training_plans import TorchTrainingPlan
 
 MR = "EUCAIM:IMG1000038"
@@ -173,8 +195,7 @@ class TreatmentPlan(TorchTrainingPlan):
             "import torch",
             "from monai.transforms import Compose, EnsureChannelFirst, NormalizeIntensity, Resize",
             "from eucaim_cdm_reader import ParameterFilter",
-            "from fedbiomed.common.dataset._eucaim_cdm_dataset import EucaimCdmDataset",
-            "from fedbiomed.common.dataset_reader._eucaim_cdm_reader import SeriesQuery",
+            "from fedbiomed.common.dataset import EucaimCdmDataset, SeriesQuery",
         ]
 
     def init_model(self):
@@ -345,7 +366,7 @@ Define named modalities in `series_queries` and use the names as modality keys:
 
 ```python
 from eucaim_cdm_reader import ParameterFilter
-from fedbiomed.common.dataset_reader._eucaim_cdm_reader import SeriesQuery
+from fedbiomed.common.dataset import SeriesQuery
 
 MR = "EUCAIM:IMG1000038"
 
@@ -549,8 +570,7 @@ All errors carry the code `FB634`.
 
 ## Limitations
 
-- Node registration (`fedbiomed node dataset add`, GUI) is not available yet (see
-  [Preview](#introduction)).
+- The dataset cannot be added from the GUI, only with `fedbiomed node dataset add`.
 - One sample per patient. A study or a series cannot be the sample unit.
 - No segmentation targets (DICOM SEG) yet.
 - Acquisition parameters (`image_modality`) select series but are not features.

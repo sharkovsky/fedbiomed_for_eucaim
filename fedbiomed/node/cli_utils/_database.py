@@ -11,6 +11,7 @@ from fedbiomed.common.exceptions import (
 )
 from fedbiomed.common.logger import logger
 from fedbiomed.node.cli_utils._io import (
+    DATA_TYPES,
     _prompt_path_cli,
     validated_data_type_input,
     validated_path_input,
@@ -172,14 +173,7 @@ def add_database(
             )
 
         data_type = str(data_type).lower()
-        if data_type not in (
-            "csv",
-            "default",
-            "mednist",
-            "images",
-            "medical-folder",
-            "custom",
-        ):
+        if data_type not in DATA_TYPES:
             data_type = "default"
 
         if path is not None and not os.path.exists(path):

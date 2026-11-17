@@ -7,15 +7,25 @@ from fedbiomed.common.logger import logger
 
 from ._tkinter_utils import TclError, filedialog, messagebox
 
+# Data types that can be added from the CLI, in menu order (new types go last, so the
+# existing menu numbers do not change).
+DATA_TYPES = (
+    "csv",
+    "default",
+    "mednist",
+    "images",
+    "medical-folder",
+    "custom",
+    "eucaim-cdm",
+)
+
 
 def validated_data_type_input() -> str:
     """Picks data type to use from user input on command line.
     Returns:
-        A string keyword for one of the possible data type
-            ('csv', 'default', 'mednist', 'images', 'medical-folder', 'custom').
+        A string keyword for one of the possible data types (`DATA_TYPES`).
     """
-    _types = ["csv", "default", "mednist", "images", "medical-folder", "custom"]
-    valid_options = dict(enumerate(_types, 1))
+    valid_options = dict(enumerate(DATA_TYPES, 1))
 
     msg = "Please select the data type that you're configuring:\n"
     msg += "\n".join([f"\t{i}) {val}" for i, val in valid_options.items()])

@@ -12,6 +12,7 @@ from fedbiomed.common.constants import DatasetTypes, ErrorNumbers
 from fedbiomed.common.dataset_controller import (
     Controller,
     CustomController,
+    EucaimCdmController,
     ImageFolderController,
     MedicalFolderController,
     MedNistController,
@@ -22,6 +23,7 @@ from fedbiomed.common.exceptions import FedbiomedError
 
 from ._custom_dataset import CustomDataset
 from ._dataset import Dataset
+from ._eucaim_cdm_dataset import EucaimCdmDataset
 from ._image_label_dataset import (
     ImageFolderDataset,
     MedNistDataset,
@@ -32,6 +34,7 @@ from ._tabular_dataset import TabularDataset
 
 DATASET_CLASSES_PER_TYPE: Dict[DatasetTypes, Type[Dataset]] = {
     DatasetTypes.CUSTOM: CustomDataset,  # type: ignore[type-abstract]
+    DatasetTypes.EUCAIM_CDM: EucaimCdmDataset,
     DatasetTypes.IMAGES: ImageFolderDataset,
     DatasetTypes.MEDICAL_FOLDER: MedicalFolderDataset,
     DatasetTypes.MEDNIST: MedNistDataset,
@@ -65,6 +68,10 @@ REGISTRY_CONTROLLERS: Dict[DatasetTypes, Tuple[Type[Controller], Type[Dataset]]]
     DatasetTypes.CUSTOM: (
         CustomController,
         DATASET_CLASSES_PER_TYPE[DatasetTypes.CUSTOM],
+    ),
+    DatasetTypes.EUCAIM_CDM: (
+        EucaimCdmController,
+        DATASET_CLASSES_PER_TYPE[DatasetTypes.EUCAIM_CDM],
     ),
 }
 

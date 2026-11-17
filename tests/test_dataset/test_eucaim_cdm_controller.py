@@ -504,12 +504,7 @@ def test_eucaim_cdm_controller_31_unreadable_series_names_the_series(controller)
 # --- registry round trip -----------------------------------------------------------------
 
 
-def test_eucaim_cdm_controller_32_get_controller_round_trip(cdm_root, monkeypatch):
-    monkeypatch.setitem(
-        _mappings.REGISTRY_CONTROLLERS,
-        DatasetTypes.EUCAIM_CDM,
-        (EucaimCdmController, None),
-    )
+def test_eucaim_cdm_controller_32_get_controller_round_trip(cdm_root):
     # As the dataset manager does at registration: unknown keys and None are dropped
     first = _mappings.get_controller(
         "eucaim-cdm", {"root": str(cdm_root), "tabular_file": None, "dlp": None}

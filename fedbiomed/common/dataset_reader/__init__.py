@@ -6,10 +6,13 @@ Classes that simplify imports from fedbiomed.common.dataset_reader
 """
 
 from ._csv_reader import CsvReader
+from ._eucaim_cdm_reader import EucaimCdmReader, SeriesQuery
 from ._nifti_reader import NiftiReader
 
 __all__ = [
     "CsvReader",
+    "EucaimCdmReader",
+    "SeriesQuery",
     "NiftiReader",
     "MnistReader",
 ]
